@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentvideo"
+version = "0.1.0"
+description = "AI agent (Claude + FFmpeg) that edits and creates videos from a plain-language description"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["anthropic>=2.3.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+agentvideo = "agentvideo.cli:main"
+
+[tool.setuptools]
+packages = ["agentvideo"]
