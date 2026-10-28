@@ -240,7 +240,8 @@ def build_tools(ws: Workspace) -> list:
 
     @beta_tool
     def create_title_card(output: str, text: str, duration: float = 3.0, aspect: str = "16:9", background: str = "#1e3a8a",
-                          fontsize: int = 80, color: str = "white", subtitle: str | None = None) -> str:
+                          fontsize: int = 80, color: str = "white", subtitle: str | None = None,
+                          subtitle_fontsize: int | None = None) -> str:
         """Generate a solid-colour clip with centred text: intro, outro, chapter or scene card.
 
         Args:
@@ -251,9 +252,10 @@ def build_tools(ws: Workspace) -> list:
             background: Background colour (hex or name).
             fontsize: Title font size.
             color: Text colour.
-            subtitle: Optional smaller second line.
+            subtitle: Optional second line (examples, slogan); use \\n to wrap long lines.
+            subtitle_fontsize: Size of the second line; default is half the title size.
         """
-        return ws.done(ops.title_card(P(output), text, duration, aspect, background, fontsize, color, subtitle))
+        return ws.done(ops.title_card(P(output), text, duration, aspect, background, fontsize, color, subtitle, subtitle_fontsize))
 
     @beta_tool
     def images_to_video(images: list[str], output: str, seconds_per_image: float = 3.0, aspect: str = "16:9",

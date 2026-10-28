@@ -394,7 +394,8 @@ def overlay_image(input: str, image: str, output: str, position: str = "top-righ
 
 
 def title_card(output: str, text: str, duration: float = 3.0, aspect: str = "16:9", background: str = "#1e3a8a",
-               fontsize: int = 80, color: str = "white", subtitle: str | None = None) -> str:
+               fontsize: int = 80, color: str = "white", subtitle: str | None = None,
+               subtitle_fontsize: int | None = None) -> str:
     """Create a solid-colour clip with centred text (intro/outro/scene card), with silent audio."""
     if aspect not in ASPECTS:
         raise ValueError(f"aspect must be one of {list(ASPECTS)}")
@@ -405,7 +406,7 @@ def title_card(output: str, text: str, duration: float = 3.0, aspect: str = "16:
     temp_files.append(tf)
     vf = vf_title
     if subtitle:
-        sub, tf2 = _drawtext(subtitle, "center", max(fontsize // 2, 24), color, False, None, None)
+        sub, tf2 = _drawtext(subtitle, "center", subtitle_fontsize or max(fontsize // 2, 24), color, False, None, None)
         temp_files.append(tf2)
         vf = vf.replace("y=(h-text_h)/2", "y=(h-text_h)/2-h*0.06") + "," + sub.replace("y=(h-text_h)/2", "y=h*0.58")
     vf += f",fade=t=in:st=0:d=0.4,fade=t=out:st={max(duration - 0.4, 0):.3f}:d=0.4"
