@@ -340,12 +340,7 @@ def build_tools(ws: Workspace) -> list:
             s = str(a)
             if s.startswith("/") or ".." in Path(s).parts:
                 P(s)  # raises if outside the workspace
-        cwd = os.getcwd()
-        try:
-            os.chdir(ws.root)
-            ops.ffmpeg(*map(str, args))
-        finally:
-            os.chdir(cwd)
+        ops.ffmpeg(*map(str, args), cwd=str(ws.root))
         return "ffmpeg finished. Use probe_media/view_frames to check the result."
 
     return [

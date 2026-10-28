@@ -72,16 +72,16 @@ class MediaInfo:
         }
 
 
-def _run(args: list[str], timeout: int = 1800) -> str:
-    proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+def _run(args: list[str], timeout: int = 1800, cwd: str | None = None) -> str:
+    proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=cwd)
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-15:])
         raise FFmpegError(f"{Path(args[0]).name} failed (exit {proc.returncode}):\n{tail}")
     return proc.stdout
 
 
-def ffmpeg(*args: str) -> None:
-    _run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", *args])
+def ffmpeg(*args: str, cwd: str | None = None) -> None:
+    _run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", *args], cwd=cwd)
 
 
 def _prepare_output(output: str) -> str:

@@ -1,0 +1,5 @@
+.git
+data
+workspace
+tests
+**/__pycache__

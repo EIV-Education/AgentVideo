@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentVideo</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --text:#1a1d29; --muted:#6b7080; --line:#e3e5ee; --accent:#1e3a8a; --accent-2:#2f54c4; --err:#b42318; --ok:#067647; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12141c; --card:#1b1e29; --text:#e9ebf3; --muted:#9aa0b4; --line:#2c3040; --accent:#5b7cf0; --accent-2:#7d97f5; --err:#f97066; --ok:#47cd89; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { font-weight:600; display:block; margin-bottom:6px; }
+  textarea { width:100%; min-height:110px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font:inherit; resize:vertical; }
+  .drop { border:2px dashed var(--line); border-radius:10px; padding:18px; text-align:center; color:var(--muted); cursor:pointer; }
+  .drop.over { border-color:var(--accent); color:var(--text); }
+  .files { margin:8px 0 0; padding:0; list-style:none; font-size:14px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 18px; font:inherit; font-weight:600; cursor:pointer; }
+  button:hover { background:var(--accent-2); }
+  button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .chip { font-size:13px; padding:4px 10px; border:1px solid var(--line); border-radius:999px; cursor:pointer; color:var(--muted); background:transparent; font-weight:400; }
+  .chip:hover { color:var(--text); background:transparent; border-color:var(--accent); }
+  #log { font-size:14px; max-height:420px; overflow:auto; }
+  .ev { padding:6px 0; border-bottom:1px solid var(--line); white-space:pre-wrap; word-break:break-word; }
+  .ev.user { font-weight:600; }
+  .ev.tool { color:var(--accent); font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; }
+  .ev.result, .ev.info { color:var(--muted); font-size:13px; }
+  .ev.error { color:var(--err); }
+  .status { font-size:13px; padding:2px 10px; border-radius:999px; border:1px solid var(--line); }
+  .status.done { color:var(--ok); } .status.error { color:var(--err); }
+  .out { margin-top:12px; }
+  .out video { width:100%; max-height:480px; border-radius:8px; background:#000; }
+  .out a { color:var(--accent); font-weight:600; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎬 AgentVideo</h1>
+  <p class="sub">Tải video, ảnh, nhạc lên, mô tả yêu cầu, agent sẽ tự chỉnh sửa và trả lại video.</p>
+
+  <section class="card" id="form-card">
+    <label for="files">1. File nguồn (video, ảnh, nhạc, phụ đề)</label>
+    <div class="drop" id="drop">Kéo thả file vào đây hoặc bấm để chọn<input type="file" id="files" multiple hidden></div>
+    <ul class="files" id="file-list"></ul>
+
+    <label for="request" style="margin-top:14px">2. Yêu cầu</label>
+    <textarea id="request" placeholder="Ví dụ: Cắt từ giây 5 đến 35, chuyển sang dọc 9:16, thêm chữ 'EIV Education' phía trên, nhạc nền nhỏ."></textarea>
+    <div class="chips">
+      <button class="chip" type="button">Chuyển sang video dọc 9:16 cho TikTok, nền mờ</button>
+      <button class="chip" type="button">Cắt bỏ các đoạn im lặng</button>
+      <button class="chip" type="button">Ghép các video theo thứ tự, chuyển cảnh fade</button>
+      <button class="chip" type="button">Tạo video từ các ảnh, có intro và outro</button>
+      <button class="chip" type="button">Thêm nhạc nền nhỏ, fade cuối video</button>
+    </div>
+    <div class="row">
+      <button id="send">Bắt đầu</button>
+      <button id="new" class="ghost hidden" type="button">Phiên mới</button>
+      <span id="status" class="status hidden"></span>
+    </div>
+  </section>
+
+  <section class="card hidden" id="result-card">
+    <label>Tiến trình</label>
+    <div id="log"></div>
+    <div id="outputs"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let jobId = null, cursor = 0, timer = null, picked = [];
+
+function renderFiles() {
+  $("file-list").innerHTML = picked.map(f => `<li>📎 ${esc(f.name)} (${(f.size/1048576).toFixed(1)} MB)</li>`).join("");
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+$("drop").onclick = () => $("files").click();
+$("files").onchange = (e) => { picked.push(...e.target.files); renderFiles(); };
+["dragover","dragenter"].forEach(t => $("drop").addEventListener(t, e => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave","drop"].forEach(t => $("drop").addEventListener(t, e => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", e => { picked.push(...e.dataTransfer.files); renderFiles(); });
+document.querySelectorAll(".chip").forEach(c => c.onclick = () => { $("request").value = c.textContent; $("request").focus(); });
+
+function setStatus(s) {
+  const label = {queued:"Đang chờ", running:"Đang xử lý…", done:"Hoàn tất", error:"Có lỗi"}[s] || s;
+  $("status").textContent = label; $("status").className = "status " + s;
+  const busy = s === "queued" || s === "running";
+  $("send").disabled = busy;
+  $("send").textContent = jobId ? "Gửi yêu cầu tiếp" : "Bắt đầu";
+  $("new").classList.toggle("hidden", !jobId || busy);
+}
+
+$("send").onclick = async () => {
+  const text = $("request").value.trim();
+  if (!text) { $("request").focus(); return; }
+  const fd = new FormData();
+  fd.append("request", text);
+  picked.forEach(f => fd.append("files", f));
+  $("send").disabled = true; $("send").textContent = "Đang tải lên…";
+  const url = jobId ? `/api/jobs/${jobId}/messages` : "/api/jobs";
+  try {
+    const r = await fetch(url, {method:"POST", body:fd});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    jobId = data.id; picked = []; renderFiles(); $("request").value = "";
+    $("result-card").classList.remove("hidden"); $("status").classList.remove("hidden");
+    setStatus("queued"); poll();
+  } catch (err) {
+    alert("Không gửi được: " + err.message); setStatus(jobId ? "done" : "");
+    $("send").disabled = false;
+  }
+};
+
+$("new").onclick = () => {
+  jobId = null; cursor = 0; $("log").innerHTML = ""; $("outputs").innerHTML = "";
+  $("result-card").classList.add("hidden"); $("status").classList.add("hidden"); setStatus("");
+  $("send").disabled = false;
+};
+
+async function poll() {
+  clearTimeout(timer);
+  try {
+    const r = await fetch(`/api/jobs/${jobId}?since=${cursor}`);
+    const d = await r.json();
+    cursor = d.next;
+    const icon = {tool:"▶ ", result:"↳ ", error:"✖ ", info:"• ", user:"🧑 ", text:"🤖 "};
+    for (const ev of d.events) {
+      const div = document.createElement("div");
+      div.className = "ev " + ev.kind; div.textContent = (icon[ev.kind] || "") + ev.text;
+      $("log").appendChild(div);
+    }
+    $("log").scrollTop = $("log").scrollHeight;
+    $("outputs").innerHTML = d.outputs.map(o => {
+      const src = `/api/jobs/${jobId}/files/${encodeURI(o.path)}`;
+      const preview = /\.(mp4|webm|mov)$/i.test(o.path) ? `<video src="${src}" controls preload="metadata"></video>` :
+                      /\.(gif|png|jpg)$/i.test(o.path) ? `<img src="${src}" style="max-width:100%">` : "";
+      return `<div class="out">${preview}<div>⬇️ <a href="${src}?download=true">${esc(o.path)}</a> (${o.size_mb} MB)</div></div>`;
+    }).join("");
+    setStatus(d.status);
+    if (d.status === "queued" || d.status === "running") timer = setTimeout(poll, 2000);
+  } catch { timer = setTimeout(poll, 4000); }
+}
+</script>
+</body>
+</html>

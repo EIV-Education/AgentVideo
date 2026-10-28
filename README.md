@@ -61,6 +61,40 @@ text, history = run_agent("Thêm nhạc nền music.mp3", "./project", history=h
 
 Dùng trong **Claude Code**: repo có sẵn skill `.claude/skills/video-editor`, mở repo bằng Claude Code rồi gõ yêu cầu chỉnh video.
 
+## Làm sao cho nhiều người cùng dùng?
+
+**Chạy bản web: mọi người mở trình duyệt, tải file lên, gõ yêu cầu và tải video về.** Người dùng không cần cài gì, không cần API key; cả nhóm dùng chung 1 key và 1 mật khẩu.
+
+Chạy bằng Docker (khuyên dùng cho máy chủ):
+
+```bash
+docker build -t agentvideo .
+```
+```bash
+docker run -d -p 8000:8000 -v agentvideo-data:/data -e ANTHROPIC_API_KEY=sk-ant-... -e APP_PASSWORD=matkhau-chung agentvideo
+```
+
+Hoặc chạy trực tiếp bằng Python:
+
+```bash
+pip install -e ".[web]"
+```
+```bash
+APP_PASSWORD=matkhau-chung ANTHROPIC_API_KEY=sk-ant-... agentvideo-web
+```
+
+Mở `http://<địa-chỉ-máy>:8000`, đăng nhập với tên bất kỳ và mật khẩu `APP_PASSWORD`.
+
+| Biến môi trường | Mặc định | Ý nghĩa |
+|---|---|---|
+| `APP_PASSWORD` | (trống) | Mật khẩu chung. **Bắt buộc đặt** khi đưa lên Internet |
+| `MAX_CONCURRENT_JOBS` | `2` | Số video xử lý cùng lúc, yêu cầu khác xếp hàng |
+| `MAX_UPLOAD_MB` | `1024` | Dung lượng tải lên tối đa mỗi lần |
+| `JOB_TTL_HOURS` | `48` | Tự xoá file của phiên cũ sau số giờ này |
+| `AGENTVIDEO_MODEL` | `claude-opus-5-5` | Model Claude dùng cho agent |
+
+Lưu ý: lịch sử hội thoại giữ trong bộ nhớ, khởi động lại server thì các phiên đang mở sẽ mất (file đã xuất vẫn còn trong thư mục dữ liệu).
+
 ## Kiến trúc ra sao?
 
 ```
@@ -69,6 +103,7 @@ agentvideo/
   tools.py       # 21 tool cho Claude + sandbox thư mục làm việc
   agent.py       # vòng lặp tool-use: lập kế hoạch → gọi tool → kiểm tra → báo cáo
   cli.py         # lệnh `agentvideo`
+  web.py         # bản web nhiều người dùng (`agentvideo-web`) + static/index.html
 tests/           # test cho mọi thao tác chính + vòng lặp agent (client giả)
 ```
 

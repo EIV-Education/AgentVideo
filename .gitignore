@@ -7,3 +7,4 @@ dist/
 # media produced while working
 workspace/
 .agentvideo/
+data/
