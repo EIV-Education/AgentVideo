@@ -8,3 +8,5 @@ dist/
 workspace/
 .agentvideo/
 data/
+deploy/.env
+deploy/data/

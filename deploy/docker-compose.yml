@@ -1,0 +1,25 @@
+# AgentVideo on a shared VPS: isolated container, capped resources, lower CPU priority
+# than the website, and only reachable through the host's reverse proxy (127.0.0.1).
+services:
+  agentvideo:
+    build: ..
+    image: agentvideo:latest
+    container_name: agentvideo
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8510}:8000"
+    volumes:
+      - ./data:/data
+    cpus: ${CPU_LIMIT:-1.5}        # hard cap on cores used by ffmpeg
+    mem_limit: ${MEM_LIMIT:-2g}    # hard cap on RAM
+    memswap_limit: ${MEM_LIMIT:-2g}
+    cpu_shares: 256                # under contention the website (default 1024) wins
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

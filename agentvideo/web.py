@@ -171,6 +171,12 @@ def download(job_id: str, path: str, download: bool = False) -> FileResponse:
     return FileResponse(target, filename=target.name if download else None)
 
 
+@app.get("/healthz")
+def healthz() -> dict:
+    busy = sum(1 for j in _jobs.values() if j.status in ("queued", "running"))
+    return {"ok": True, "active_jobs": busy}
+
+
 @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
 def index() -> str:
     return (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
