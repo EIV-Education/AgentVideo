@@ -53,6 +53,11 @@ say "App is running on 127.0.0.1:${HOST_PORT} (not exposed to the internet by it
 [ -n "$DOMAIN" ] || { say "No domain given: skipped web server setup. Re-run with your subdomain to publish it."; exit 0; }
 
 # 3. Nginx site for the subdomain (only if this VPS uses host nginx)
+if [ -d /www/server/panel ]; then
+  say "aaPanel detected: not touching its nginx. Finish in the aaPanel UI (deploy/DEPLOY.md, 'aaPanel' section):"
+  say "  Website -> Add site ${DOMAIN} -> Reverse proxy to http://127.0.0.1:${HOST_PORT} -> SSL (Let's Encrypt)"
+  exit 0
+fi
 command -v nginx >/dev/null && systemctl is-active --quiet nginx \
   || die "host nginx not found/running. App is up; send the output of check-vps.sh to configure your web server."
 

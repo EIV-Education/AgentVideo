@@ -99,3 +99,20 @@ sudo rm -f /etc/nginx/sites-enabled/agentvideo.conf /etc/nginx/sites-available/a
 ```
 
 Website không bị ảnh hưởng khi gỡ, vì bộ cài chỉ thêm đúng file `agentvideo.conf`.
+
+## VPS dùng aaPanel thì làm thế nào?
+
+**Với aaPanel, script chỉ chạy app trong Docker; tên miền và HTTPS làm trong giao diện aaPanel.** Script tự nhận ra aaPanel và không sửa nginx của panel.
+
+1. Mở **Terminal** trong menu aaPanel, chạy `check-vps.sh` và `install.sh` như các bước trên (không cần SSH).
+2. **Website → Add site**: nhập `video.tenmien.com`, PHP chọn **Static**, không tạo database/FTP.
+3. Mở site vừa tạo → **Reverse proxy → Add**: Target URL `http://127.0.0.1:8510`.
+4. **SSL → Let's Encrypt**: chọn tên miền, bấm Apply, bật **Force HTTPS**.
+5. Mở **Config** (file cấu hình) của site, thêm vào trong khối `server { ... }` rồi Save:
+   ```
+   client_max_body_size 1100m;
+   proxy_read_timeout 600s;
+   proxy_send_timeout 600s;
+   proxy_request_buffering off;
+   ```
+   Nếu không thêm, aaPanel chặn file tải lên lớn hơn mức mặc định của panel.

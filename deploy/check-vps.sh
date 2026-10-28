@@ -27,6 +27,12 @@ else
 fi
 
 hr "Web server"
+if [ -d /www/server/panel ]; then
+  echo "Control panel: aaPanel/BT detected (/www/server/panel)"
+  [ -x /www/server/nginx/sbin/nginx ] && /www/server/nginx/sbin/nginx -v 2>&1 | sed 's/^/aaPanel /'
+  [ -d /www/server/panel/vhost/nginx ] && echo "aaPanel nginx sites: $(ls /www/server/panel/vhost/nginx | tr '\n' ' ')"
+  grep -h client_max_body_size /www/server/nginx/conf/nginx.conf 2>/dev/null | sed 's/^ */aaPanel nginx.conf: /'
+fi
 for svc in nginx apache2 httpd caddy traefik; do
   if have systemctl && systemctl is-active --quiet "$svc" 2>/dev/null; then echo "$svc: running (systemd)"; fi
 done
