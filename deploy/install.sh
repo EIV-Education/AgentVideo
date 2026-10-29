@@ -26,6 +26,12 @@ if [ ! -f .env ]; then
   read -rp "Shared password for the team: " pass
   [ -n "$key" ] && [ -n "$pass" ] || die "API key and password are required"
   sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=${key}|; s|^APP_PASSWORD=.*|APP_PASSWORD=${pass}|" .env
+  # Small disk (<= 25 GB root): smaller uploads and faster cleanup so videos can't fill it.
+  disk_gb="$(df -BG --output=size / | tail -1 | tr -dc '0-9')"
+  if [ "${disk_gb:-0}" -le 25 ]; then
+    sed -i 's/^MAX_UPLOAD_MB=.*/MAX_UPLOAD_MB=500/; s/^JOB_TTL_HOURS=.*/JOB_TTL_HOURS=24/' .env
+    say "Small disk (${disk_gb} GB): upload limit 500 MB, files kept 24 h"
+  fi
   chmod 600 .env
   say "Saved settings to deploy/.env (readable by root only)"
 fi
