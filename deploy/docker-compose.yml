@@ -12,8 +12,8 @@ services:
     volumes:
       - ./data:/data
     cpus: ${CPU_LIMIT:-1.5}        # hard cap on cores used by ffmpeg
-    mem_limit: ${MEM_LIMIT:-2g}    # hard cap on RAM
-    memswap_limit: ${MEM_LIMIT:-2g}
+    mem_limit: ${MEM_LIMIT:-1536m}    # hard cap on RAM
+    memswap_limit: ${MEM_LIMIT:-1536m}
     cpu_shares: 256                # under contention the website (default 1024) wins
     pids_limit: 256
     security_opt:

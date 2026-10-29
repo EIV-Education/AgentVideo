@@ -21,7 +21,7 @@ Gửi lại toàn bộ kết quả để kiểm tra trước khi cài. Cần ch�
 
 | Mục | Yêu cầu tối thiểu |
 |---|---|
-| RAM trống | ≥ 2 GB (agent dùng tối đa 2 GB, chỉnh bằng `MEM_LIMIT`) |
+| RAM trống | ≥ 2 GB (agent dùng tối đa 1,5 GB, chỉnh bằng `MEM_LIMIT`) |
 | Ổ đĩa trống | ≥ 10 GB (video tải lên và video xuất ra) |
 | Docker | Đã cài, có `docker compose` |
 | Web server | nginx chạy trực tiếp trên VPS thì bộ cài tự cấu hình; Apache/Caddy/Traefik/nginx trong Docker thì cần cấu hình riêng |
@@ -55,7 +55,7 @@ Chỉ muốn chạy app, chưa gắn tên miền: `sudo bash ~/agentvideo/deploy
 | Thiết lập (`deploy/.env`) | Mặc định | Tác dụng |
 |---|---|---|
 | `CPU_LIMIT` | `1.5` | Agent dùng tối đa 1,5 nhân CPU |
-| `MEM_LIMIT` | `2g` | Agent dùng tối đa 2 GB RAM |
+| `MEM_LIMIT` | `1536m` | Agent dùng tối đa 1,5 GB RAM |
 | `cpu_shares` (trong compose) | `256` | Khi CPU bận, website (mức 1024) được ưu tiên gấp 4 lần |
 | `MAX_CONCURRENT_JOBS` | `1` | Mỗi lúc xử lý 1 video, người khác xếp hàng |
 | `MAX_UPLOAD_MB` | `1024` | Tải lên tối đa 1 GB mỗi lần |
