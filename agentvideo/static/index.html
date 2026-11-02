@@ -32,6 +32,7 @@
   .ev.tool { color:var(--accent); font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; }
   .ev.result, .ev.info { color:var(--muted); font-size:13px; }
   .ev.error { color:var(--err); }
+  .ev code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; background:var(--bg); padding:1px 5px; border-radius:4px; }
   .status { font-size:13px; padding:2px 10px; border-radius:999px; border:1px solid var(--line); }
   .status.done { color:var(--ok); } .status.error { color:var(--err); }
   .out { margin-top:12px; }
@@ -80,6 +81,18 @@ function renderFiles() {
   $("file-list").innerHTML = picked.map(f => `<li>📎 ${esc(f.name)} (${(f.size/1048576).toFixed(1)} MB)</li>`).join("");
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+// Minimal Markdown for the agent's replies: **bold**, `code`, "- " bullets. Input is escaped first.
+function md(s) {
+  return esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/^\s*[-*] /gm, "• ");
+}
+const VIDEO_ERR = {1:"bị huỷ", 2:"lỗi mạng hoặc bị chặn khi tải", 3:"không giải mã được", 4:"không tải được (có thể bị proxy/WAF chặn hoặc sai định dạng)"};
+function videoFailed(v) {
+  if (v.dataset.failed) return;
+  v.dataset.failed = "1";
+  const code = v.error ? v.error.code : "?";
+  v.insertAdjacentHTML("afterend", `<div class="ev error">✖ Trình duyệt không phát được video (mã ${code}: ${VIDEO_ERR[code] || "không rõ"}). Hãy bấm link tải về bên dưới và gửi mã lỗi này cho quản trị.</div>`);
+}
 
 $("drop").onclick = () => $("files").click();
 $("files").onchange = (e) => { picked.push(...e.target.files); renderFiles(); };
@@ -133,13 +146,14 @@ async function poll() {
     const icon = {tool:"▶ ", result:"↳ ", error:"✖ ", info:"• ", user:"🧑 ", text:"🤖 "};
     for (const ev of d.events) {
       const div = document.createElement("div");
-      div.className = "ev " + ev.kind; div.textContent = (icon[ev.kind] || "") + ev.text;
+      div.className = "ev " + ev.kind;
+      if (ev.kind === "text") div.innerHTML = icon.text + md(ev.text); else div.textContent = (icon[ev.kind] || "") + ev.text;
       $("log").appendChild(div);
     }
     $("log").scrollTop = $("log").scrollHeight;
     $("outputs").innerHTML = d.outputs.map(o => {
       const src = `/api/jobs/${jobId}/files/${encodeURI(o.path)}`;
-      const preview = /\.(mp4|webm|mov)$/i.test(o.path) ? `<video src="${src}" controls preload="metadata"></video>` :
+      const preview = /\.(mp4|webm|mov)$/i.test(o.path) ? `<video src="${src}" controls preload="metadata" playsinline onerror="videoFailed(this)"></video>` :
                       /\.(gif|png|jpg)$/i.test(o.path) ? `<img src="${src}" style="max-width:100%">` : "";
       return `<div class="out">${preview}<div>⬇️ <a href="${src}?download=true">${esc(o.path)}</a> (${o.size_mb} MB)</div></div>`;
     }).join("");
