@@ -87,11 +87,61 @@ function md(s) {
     .replace(/^\s*[-*] /gm, "• ");
 }
 const VIDEO_ERR = {1:"bị huỷ", 2:"lỗi mạng hoặc bị chặn khi tải", 3:"không giải mã được", 4:"không tải được (có thể bị proxy/WAF chặn hoặc sai định dạng)"};
-function videoFailed(v) {
+function videoFailed(v, detail) {
   if (v.dataset.failed) return;
   v.dataset.failed = "1";
   const code = v.error ? v.error.code : "?";
-  v.insertAdjacentHTML("afterend", `<div class="ev error">✖ Trình duyệt không phát được video (mã ${code}: ${VIDEO_ERR[code] || "không rõ"}). Hãy bấm link tải về bên dưới và gửi mã lỗi này cho quản trị.</div>`);
+  const why = detail || `mã ${code}: ${VIDEO_ERR[code] || "không rõ"}`;
+  v.insertAdjacentHTML("afterend", `<div class="ev error">✖ Trình duyệt không phát được video (${esc(why)}). Hãy bấm link tải về bên dưới và gửi lỗi này cho quản trị.</div>`);
+}
+
+// Streaming playback needs HTTP Range requests, which some reverse proxies/WAFs block.
+// If the player can't start that way, fetch the whole file (like a download) and play it from memory.
+async function playFromBlob(v) {
+  if (v.dataset.blob) return;
+  v.dataset.blob = "1";
+  const note = document.createElement("div");
+  note.className = "ev info";
+  note.textContent = "Đang tải video để xem trước…";
+  v.after(note);
+  try {
+    const r = await fetch(v.dataset.src);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const total = +r.headers.get("content-length") || 0;
+    const reader = r.body.getReader(), chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); got += value.length;
+      if (total) note.textContent = `Đang tải video để xem trước… ${Math.round(got * 100 / total)}%`;
+    }
+    v.src = URL.createObjectURL(new Blob(chunks, { type: r.headers.get("content-type") || "video/mp4" }));
+    v.onerror = () => videoFailed(v);
+    note.remove();
+  } catch (err) {
+    note.remove();
+    videoFailed(v, err.message);
+  }
+}
+
+function attachVideo(v) {
+  v.onerror = () => playFromBlob(v);
+  setTimeout(() => { if (v.readyState < 1 && !v.dataset.blob) playFromBlob(v); }, 6000);
+}
+
+let renderedOutputs = "";
+function renderOutputs(outputs) {
+  const key = JSON.stringify(outputs);
+  if (key === renderedOutputs) return;  // don't recreate players (and restart playback) on every poll
+  renderedOutputs = key;
+  $("outputs").innerHTML = outputs.map(o => {
+    const src = `/api/jobs/${jobId}/files/${encodeURI(o.path)}`;
+    const preview = /\.(mp4|webm|mov)$/i.test(o.path) ? `<video src="${src}" data-src="${src}" controls preload="metadata" playsinline></video>` :
+                    /\.(gif|png|jpg)$/i.test(o.path) ? `<img src="${src}" style="max-width:100%">` : "";
+    return `<div class="out">${preview}<div>⬇️ <a href="${src}?download=true">${esc(o.path)}</a> (${o.size_mb} MB)</div></div>`;
+  }).join("");
+  $("outputs").querySelectorAll("video").forEach(attachVideo);
 }
 
 $("drop").onclick = () => $("files").click();
@@ -132,7 +182,7 @@ $("send").onclick = async () => {
 };
 
 $("new").onclick = () => {
-  jobId = null; cursor = 0; $("log").innerHTML = ""; $("outputs").innerHTML = "";
+  jobId = null; cursor = 0; renderedOutputs = ""; $("log").innerHTML = ""; $("outputs").innerHTML = "";
   $("result-card").classList.add("hidden"); $("status").classList.add("hidden"); setStatus("");
   $("send").disabled = false;
 };
@@ -151,12 +201,7 @@ async function poll() {
       $("log").appendChild(div);
     }
     $("log").scrollTop = $("log").scrollHeight;
-    $("outputs").innerHTML = d.outputs.map(o => {
-      const src = `/api/jobs/${jobId}/files/${encodeURI(o.path)}`;
-      const preview = /\.(mp4|webm|mov)$/i.test(o.path) ? `<video src="${src}" controls preload="metadata" playsinline onerror="videoFailed(this)"></video>` :
-                      /\.(gif|png|jpg)$/i.test(o.path) ? `<img src="${src}" style="max-width:100%">` : "";
-      return `<div class="out">${preview}<div>⬇️ <a href="${src}?download=true">${esc(o.path)}</a> (${o.size_mb} MB)</div></div>`;
-    }).join("");
+    renderOutputs(d.outputs);
     setStatus(d.status);
     if (d.status === "queued" || d.status === "running") timer = setTimeout(poll, 2000);
   } catch { timer = setTimeout(poll, 4000); }
