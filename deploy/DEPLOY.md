@@ -116,3 +116,12 @@ Website không bị ảnh hưởng khi gỡ, vì bộ cài chỉ thêm đúng fi
    proxy_request_buffering off;
    ```
    Nếu không thêm, aaPanel chặn file tải lên lớn hơn mức mặc định của panel.
+
+## Dùng font thương hiệu (Tahoma, font riêng) thế nào?
+
+**Font như Tahoma, Arial không có sẵn trên server Linux; agent chỉ dùng được khi có file font.** Có 2 cách:
+
+1. **Cho cả team (khuyên dùng):** chép file `.ttf`/`.otf` vào `~/agentvideo/deploy/data/fonts/` trên VPS (aaPanel → Files). Ví dụ Tahoma trên Windows nằm ở `C:\Windows\Fonts\tahoma.ttf` và `tahomabd.ttf` (đậm). Không cần khởi động lại.
+2. **Cho một video:** tải file font lên cùng video trên trang web.
+
+Chỉ dùng font mà đơn vị có quyền sử dụng hợp lệ.

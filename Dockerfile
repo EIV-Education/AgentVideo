@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir ".[web]" \
     && useradd --create-home --uid 10001 agentvideo \
     && mkdir -p /data && chown agentvideo /data
 USER agentvideo
-ENV AGENTVIDEO_DATA=/data PORT=8000 HOST=0.0.0.0
+ENV AGENTVIDEO_DATA=/data AGENTVIDEO_FONTS_DIR=/data/fonts PORT=8000 HOST=0.0.0.0
 VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

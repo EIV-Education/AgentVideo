@@ -16,7 +16,7 @@ from anthropic import beta_tool
 from . import ffmpeg_ops as ops
 
 MEDIA_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".gif", ".mp3", ".wav", ".m4a", ".aac",
-             ".png", ".jpg", ".jpeg", ".webp", ".srt", ".ass", ".txt", ".json"}
+             ".png", ".jpg", ".jpeg", ".webp", ".srt", ".ass", ".txt", ".json", ".ttf", ".otf", ".ttc"}
 
 
 class Workspace:
@@ -47,6 +47,16 @@ class Workspace:
 
 def build_tools(ws: Workspace) -> list:
     P = ws.path
+
+    def font_file(font: str | None) -> str | None:
+        if not font:
+            return None
+        found = ops.resolve_font(font, extra_dirs=[str(ws.root)])
+        if found is None:
+            raise ValueError(
+                f"font '{font}' is not available. Call list_fonts and pick one, or use the default font, "
+                f"and tell the user to upload the .ttf/.otf file (e.g. {font}.ttf) if they need this exact font.")
+        return found
 
     @beta_tool
     def list_files(subdir: str = ".") -> str:
@@ -133,7 +143,8 @@ def build_tools(ws: Workspace) -> list:
 
     @beta_tool
     def add_text_overlay(input: str, output: str, text: str, position: str = "bottom", fontsize: int = 56,
-                         color: str = "white", box: bool = True, start: float | None = None, end: float | None = None) -> str:
+                         color: str = "white", box: bool = True, start: float | None = None, end: float | None = None,
+                         font: str | None = None) -> str:
         """Draw a caption/title on the video (Vietnamese diacritics supported). Use \\n for line breaks; keep lines short.
 
         Args:
@@ -146,8 +157,10 @@ def build_tools(ws: Workspace) -> list:
             box: Semi-transparent dark box behind the text.
             start: Show from this second (omit = from start).
             end: Hide after this second (omit = until end).
+            font: Font family or uploaded font file name (see list_fonts); omit for the default font.
         """
-        return ws.done(ops.add_text(P(input, True), P(output), text, position, fontsize, color, box, start, end))
+        return ws.done(ops.add_text(P(input, True), P(output), text, position, fontsize, color, box, start, end,
+                                    font=font_file(font)))
 
     @beta_tool
     def write_subtitles(segments: list[dict], output: str) -> str:
@@ -242,7 +255,7 @@ def build_tools(ws: Workspace) -> list:
     @beta_tool
     def create_title_card(output: str, text: str, duration: float = 3.0, aspect: str = "16:9", background: str = "#1e3a8a",
                           fontsize: int = 80, color: str = "white", subtitle: str | None = None,
-                          subtitle_fontsize: int | None = None) -> str:
+                          subtitle_fontsize: int | None = None, font: str | None = None) -> str:
         """Generate a solid-colour clip with centred text: intro, outro, chapter or scene card.
 
         Args:
@@ -255,8 +268,22 @@ def build_tools(ws: Workspace) -> list:
             color: Text colour.
             subtitle: Optional second line (examples, slogan); use \\n to wrap long lines.
             subtitle_fontsize: Size of the second line; default is half the title size.
+            font: Font family or uploaded font file name (see list_fonts); omit for the default font.
         """
-        return ws.done(ops.title_card(P(output), text, duration, aspect, background, fontsize, color, subtitle, subtitle_fontsize))
+        return ws.done(ops.title_card(P(output), text, duration, aspect, background, fontsize, color, subtitle,
+                                      subtitle_fontsize, font=font_file(font)))
+
+    @beta_tool
+    def list_fonts() -> str:
+        """List usable fonts: font files uploaded by the user or installed for the team, and system font families.
+        Use the returned names for the `font` argument, or the paths for drawtext fontfile= in run_ffmpeg."""
+        info = ops.available_fonts(extra_dirs=[str(ws.root)])
+        files = {}
+        for name in info["font_files"]:
+            path = ops.resolve_font(Path(name).stem, extra_dirs=[str(ws.root)])
+            files[name] = path
+        return json.dumps({"font_files": files, "installed_families": info["installed_families"],
+                           "default": info["default"]}, ensure_ascii=False)
 
     @beta_tool
     def images_to_video(images: list[str], output: str, seconds_per_image: float = 3.0, aspect: str = "16:9",
@@ -343,12 +370,15 @@ def build_tools(ws: Workspace) -> list:
             s = str(a)
             if s.startswith("/") or ".." in Path(s).parts:
                 P(s)  # raises if outside the workspace
+        out = str(args[-1]) if args else ""
+        if out and not out.startswith("-") and Path(out).suffix:
+            Path(P(out)).parent.mkdir(parents=True, exist_ok=True)
         ops.ffmpeg(*map(str, args), cwd=str(ws.root))
         return "ffmpeg finished. Use probe_media/view_frames to check the result."
 
     return [
         list_files, probe_media, view_frames, trim_video, concat_videos, reframe_video, add_text_overlay,
         write_subtitles, burn_subtitles, add_audio_track, change_speed, apply_effects, overlay_image,
-        create_title_card, images_to_video, extract_audio, detect_scenes, detect_silence, remove_segments,
+        create_title_card, list_fonts, images_to_video, extract_audio, detect_scenes, detect_silence, remove_segments,
         convert_or_compress, run_ffmpeg,
     ]

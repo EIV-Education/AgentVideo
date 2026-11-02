@@ -147,3 +147,16 @@ def test_failed_encode_leaves_no_file(media, tmp_path):
     assert list((tmp_path / "output").iterdir()) == []
     ops.trim(str(media / "a.mp4"), str(out), 0, 1)  # success path still lands at the real name
     assert [p.name for p in (tmp_path / "output").iterdir()] == ["broken.mp4"]
+
+
+def test_brand_font_upload_and_missing_font(tmp_path):
+    dejavu = ops.find_font()
+    if not dejavu:
+        pytest.skip("no system font")
+    shutil.copy(dejavu, tmp_path / "Tahoma.ttf")
+    tools = {t.name: t for t in build_tools(Workspace(tmp_path))}
+    assert "Tahoma.ttf" in json.loads(tools["list_fonts"].call({}))["font_files"]
+    out = json.loads(tools["create_title_card"].call({"output": "card.mp4", "text": "Hai\ndòng", "font": "Tahoma"}))
+    assert out["output"] == "card.mp4"
+    with pytest.raises(ValueError, match="not available"):
+        tools["add_text_overlay"].call({"input": "card.mp4", "output": "o.mp4", "text": "x", "font": "NoSuchFont"})

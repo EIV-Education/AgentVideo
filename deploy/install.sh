@@ -45,7 +45,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx agentvideo; then
 fi
 
 # 2. App container
-mkdir -p data && chown -R 10001:10001 data
+mkdir -p data/fonts && chown -R 10001:10001 data
 say "Building and starting the container (first build takes a few minutes)…"
 nice -n 10 docker compose build --pull
 docker compose up -d

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -73,9 +74,15 @@ class MediaInfo:
 
 
 def _run(args: list[str], timeout: int = 1800, cwd: str | None = None) -> str:
-    proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+    except subprocess.TimeoutExpired:
+        raise FFmpegError(f"{Path(args[0]).name} timed out after {timeout}s; use shorter or lower-resolution inputs")
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-15:])
+        if proc.returncode in (-9, 137):
+            tail = ("killed: out of memory (the server's RAM limit was reached). Process fewer or shorter clips "
+                    "per step, or lower the resolution first.\n" + tail)
         raise FFmpegError(f"{Path(args[0]).name} failed (exit {proc.returncode}):\n{tail}")
     return proc.stdout
 
@@ -121,8 +128,74 @@ def find_font() -> str | None:
     return None
 
 
-def _font_opt() -> str:
-    font = find_font()
+FONT_EXT = {".ttf", ".otf", ".ttc"}
+
+
+def font_dirs(extra: list[str] | tuple = ()) -> list[Path]:
+    """Folders searched for user/brand fonts: given ones, then AGENTVIDEO_FONTS_DIR (':'-separated)."""
+    env = [d for d in os.environ.get("AGENTVIDEO_FONTS_DIR", "").split(os.pathsep) if d]
+    return [Path(d) for d in [*extra, *env] if Path(d).is_dir()]
+
+
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def resolve_font(name: str | None, extra_dirs: list[str] | tuple = (), bold: bool = True) -> str | None:
+    """Find a font file from a path, a file in the font folders, or an installed family name.
+
+    Returns None when `name` is given but nothing matching exists (callers must not silently substitute).
+    """
+    if not name:
+        return find_font()
+    if Path(name).is_file():
+        return name
+    want = _norm(Path(name).stem)
+    files = [f for d in font_dirs(extra_dirs) for f in d.rglob("*") if f.suffix.lower() in FONT_EXT]
+    matches = [f for f in files if _norm(f.stem).startswith(want)]
+    if matches:
+        def rank(f: Path) -> tuple:
+            stem = _norm(f.stem)
+            is_bold = any(k in stem for k in ("bold", "bd")) and not stem.endswith(("italic", "it"))
+            return (stem != want and not (bold and is_bold), len(stem))
+        return str(sorted(matches, key=rank)[0])
+    if shutil.which("fc-match"):
+        try:
+            out = _run(["fc-match", "-f", "%{file}|%{family}", f"{name}:bold" if bold else name]).strip()
+            path, _, family = out.partition("|")
+            if path and Path(path).exists() and want in _norm(family):
+                return path
+        except FFmpegError:
+            pass
+    return None
+
+
+def available_fonts(extra_dirs: list[str] | tuple = ()) -> dict:
+    uploaded = sorted({f.name for d in font_dirs(extra_dirs) for f in d.rglob("*") if f.suffix.lower() in FONT_EXT})
+    families: list[str] = []
+    if shutil.which("fc-list"):
+        try:
+            families = sorted({line.split(",")[0].strip() for line in _run(["fc-list", ":", "family"]).splitlines() if line.strip()})
+        except FFmpegError:
+            pass
+    return {"font_files": uploaded, "installed_families": families, "default": find_font()}
+
+
+_ALIGN_SUPPORTED: bool | None = None
+
+
+def _drawtext_has_align() -> bool:
+    global _ALIGN_SUPPORTED
+    if _ALIGN_SUPPORTED is None:
+        try:
+            _ALIGN_SUPPORTED = "text_align" in _run([FFMPEG, "-hide_banner", "-h", "filter=drawtext"])
+        except FFmpegError:
+            _ALIGN_SUPPORTED = False
+    return _ALIGN_SUPPORTED
+
+
+def _font_opt(font: str | None = None) -> str:
+    font = font or find_font()
     return f"fontfile='{_esc_filter_path(font)}':" if font else ""
 
 
@@ -165,6 +238,8 @@ def probe(path: str) -> MediaInfo:
 
 
 ENCODE = ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+# Intermediate files that get re-encoded again: fast and near-lossless, so the final pass keeps the quality.
+FAST_ENCODE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "256k"]
 
 
 def trim(input: str, output: str, start: float, end: float | None = None) -> str:
@@ -185,11 +260,11 @@ def normalize(input: str, output: str, width: int, height: int, fps: int = DEFAU
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={fps},format=yuv420p"
     )
     if info.has_audio:
-        ffmpeg("-i", input, "-vf", vf, "-af", "aresample=48000,aformat=channel_layouts=stereo", *ENCODE, _prepare_output(output))
+        ffmpeg("-i", input, "-vf", vf, "-af", "aresample=48000,aformat=channel_layouts=stereo", *FAST_ENCODE, _prepare_output(output))
     else:
         ffmpeg(
             "-i", input, "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-            "-vf", vf, "-shortest", *ENCODE, _prepare_output(output),
+            "-vf", vf, "-shortest", *FAST_ENCODE, _prepare_output(output),
         )
     return output
 
@@ -204,29 +279,44 @@ def concat(inputs: list[str], output: str, transition: str = "none", transition_
     height = height or first.height or 1080
     width, height = width - width % 2, height - height % 2
     with tempfile.TemporaryDirectory(prefix="agentvideo_concat_") as tmp:
-        normed = [normalize(p, os.path.join(tmp, f"{i}.mp4"), width, height) for i, p in enumerate(inputs)]
-        args: list[str] = []
-        for p in normed:
-            args += ["-i", p]
-        n = len(normed)
+        normed = [normalize(p, os.path.join(tmp, f"n{i}.mp4"), width, height) for i, p in enumerate(inputs)]
         if transition == "none":
-            streams = "".join(f"[{i}:v][{i}:a]" for i in range(n))
-            graph = f"{streams}concat=n={n}:v=1:a=1[v][a]"
+            pieces = normed
         else:
-            durations = [probe(p).duration for p in normed]
-            d = transition_duration
-            if any(dur <= d for dur in durations):
-                raise ValueError("every clip must be longer than transition_duration")
-            parts, offset, vprev, aprev = [], 0.0, "[0:v]", "[0:a]"
-            for i in range(1, n):
-                offset += durations[i - 1] - d
-                vout, aout = f"[v{i}]", f"[a{i}]"
-                parts.append(f"{vprev}[{i}:v]xfade=transition={transition}:duration={d}:offset={offset:.3f}{vout}")
-                parts.append(f"{aprev}[{i}:a]acrossfade=d={d}{aout}")
-                vprev, aprev = vout, aout
-            graph = ";".join(parts).replace(f"[v{n-1}]", "[v]").replace(f"[a{n-1}]", "[a]")
-        ffmpeg(*args, "-filter_complex", graph, "-map", "[v]", "-map", "[a]", *ENCODE, _prepare_output(output))
+            pieces = _transition_pieces(normed, tmp, transition, transition_duration)
+        # The concat demuxer reads one piece at a time, so memory stays flat however many clips there are
+        # (a single filtergraph with N inputs buffers frames from all of them and gets OOM-killed).
+        listing = os.path.join(tmp, "list.txt")
+        with open(listing, "w", encoding="utf-8") as fh:
+            fh.writelines(f"file '{p}'\n" for p in pieces)
+        ffmpeg("-f", "concat", "-safe", "0", "-i", listing, *ENCODE, _prepare_output(output))
     return output
+
+
+def _transition_pieces(clips: list[str], tmp: str, transition: str, d: float) -> list[str]:
+    """Split clips into bodies and short crossfade pieces: body0, x01, body1, x12, body2, ...
+
+    Only the d-second overlaps go through xfade (two short inputs at a time), so each encode is small.
+    """
+    durations = [probe(c).duration for c in clips]
+    if any(dur <= 2 * d for dur in durations):
+        raise ValueError(f"every clip must be longer than {2 * d:.2f}s (twice transition_duration)")
+    pieces, n = [], len(clips)
+    for i, clip in enumerate(clips):
+        start = d if i > 0 else 0.0
+        end = durations[i] - d if i < n - 1 else durations[i]
+        body = os.path.join(tmp, f"b{i}.mp4")
+        ffmpeg("-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", clip, *FAST_ENCODE, body)
+        pieces.append(body)
+        if i < n - 1:
+            xf = os.path.join(tmp, f"x{i}.mp4")
+            graph = (f"[0:v][1:v]xfade=transition={transition}:duration={d}:offset=0,format=yuv420p[v];"
+                     f"[0:a][1:a]acrossfade=d={d}[a]")
+            ffmpeg("-ss", f"{durations[i] - d:.3f}", "-t", f"{d:.3f}", "-i", clip,
+                   "-t", f"{d:.3f}", "-i", clips[i + 1],
+                   "-filter_complex", graph, "-map", "[v]", "-map", "[a]", "-t", f"{d:.3f}", *FAST_ENCODE, xf)
+            pieces.append(xf)
+    return pieces
 
 
 def reframe(input: str, output: str, aspect: str = "9:16", mode: str = "crop", width: int | None = None,
@@ -256,12 +346,15 @@ def reframe(input: str, output: str, aspect: str = "9:16", mode: str = "crop", w
 
 
 def _drawtext(text: str, position: str, fontsize: int, color: str, box: bool,
-              start: float | None, end: float | None, fade: float = 0.0) -> tuple[str, str]:
+              start: float | None, end: float | None, fade: float = 0.0, font: str | None = None) -> tuple[str, str]:
     if position not in POSITIONS:
         raise ValueError(f"position must be one of {list(POSITIONS)}")
     x, y = POSITIONS[position]
     tf = _text_file(text)
-    opts = f"drawtext={_font_opt()}textfile='{_esc_filter_path(tf)}':fontsize={fontsize}:fontcolor={color}:x={x}:y={y}:line_spacing=8"
+    opts = f"drawtext={_font_opt(font)}textfile='{_esc_filter_path(tf)}':fontsize={fontsize}:fontcolor={color}:x={x}:y={y}:line_spacing=8"
+    if "\n" in text.strip() and _drawtext_has_align():
+        align = {"top-left": "L", "bottom-left": "L", "top-right": "R", "bottom-right": "R"}.get(position, "C")
+        opts += f":text_align={align}"
     opts += ":borderw=2:bordercolor=black@0.6"
     if box:
         opts += ":box=1:boxcolor=black@0.5:boxborderw=18"
@@ -275,8 +368,10 @@ def _drawtext(text: str, position: str, fontsize: int, color: str, box: bool,
 
 
 def add_text(input: str, output: str, text: str, position: str = "bottom", fontsize: int = 56,
-             color: str = "white", box: bool = True, start: float | None = None, end: float | None = None) -> str:
-    vf, tf = _drawtext(text, position, fontsize, color, box, start, end, fade=0.3)
+             color: str = "white", box: bool = True, start: float | None = None, end: float | None = None,
+             font: str | None = None) -> str:
+    """`font` is a font file path (see resolve_font); None uses the default font."""
+    vf, tf = _drawtext(text, position, fontsize, color, box, start, end, fade=0.3, font=font)
     try:
         ffmpeg("-i", input, "-vf", vf, *ENCODE, _prepare_output(output))
     finally:
@@ -410,18 +505,18 @@ def overlay_image(input: str, image: str, output: str, position: str = "top-righ
 
 def title_card(output: str, text: str, duration: float = 3.0, aspect: str = "16:9", background: str = "#1e3a8a",
                fontsize: int = 80, color: str = "white", subtitle: str | None = None,
-               subtitle_fontsize: int | None = None) -> str:
+               subtitle_fontsize: int | None = None, font: str | None = None) -> str:
     """Create a solid-colour clip with centred text (intro/outro/scene card), with silent audio."""
     if aspect not in ASPECTS:
         raise ValueError(f"aspect must be one of {list(ASPECTS)}")
     w, h = ASPECTS[aspect]
     bg = background.replace("#", "0x")
     temp_files = []
-    vf_title, tf = _drawtext(text, "center", fontsize, color, False, None, None)
+    vf_title, tf = _drawtext(text, "center", fontsize, color, False, None, None, font=font)
     temp_files.append(tf)
     vf = vf_title
     if subtitle:
-        sub, tf2 = _drawtext(subtitle, "center", subtitle_fontsize or max(fontsize // 2, 24), color, False, None, None)
+        sub, tf2 = _drawtext(subtitle, "center", subtitle_fontsize or max(fontsize // 2, 24), color, False, None, None, font=font)
         temp_files.append(tf2)
         vf = vf.replace("y=(h-text_h)/2", "y=(h-text_h)/2-h*0.06") + "," + sub.replace("y=(h-text_h)/2", "y=h*0.58")
     vf += f",fade=t=in:st=0:d=0.4,fade=t=out:st={max(duration - 0.4, 0):.3f}:d=0.4"
