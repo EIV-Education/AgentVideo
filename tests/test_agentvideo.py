@@ -137,3 +137,13 @@ def test_agent_loop_runs_tools(media, tmp_path):
     assert json.loads(results[0]["content"])["output"] == "output/clip.mp4"
     assert client.calls[0]["fallbacks"] == "default"
     assert any(k == "error" for k, _ in events)
+
+
+def test_failed_encode_leaves_no_file(media, tmp_path):
+    out = tmp_path / "output" / "broken.mp4"
+    out.parent.mkdir()
+    with pytest.raises(ops.FFmpegError):
+        ops.ffmpeg("-i", str(media / "a.mp4"), "-vf", "no_such_filter", str(out))
+    assert list((tmp_path / "output").iterdir()) == []
+    ops.trim(str(media / "a.mp4"), str(out), 0, 1)  # success path still lands at the real name
+    assert [p.name for p in (tmp_path / "output").iterdir()] == ["broken.mp4"]

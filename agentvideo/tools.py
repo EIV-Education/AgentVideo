@@ -58,7 +58,8 @@ def build_tools(ws: Workspace) -> list:
         base = Path(P(subdir, must_exist=True))
         rows = []
         for f in sorted(base.rglob("*")):
-            if f.is_file() and f.suffix.lower() in MEDIA_EXT and ".agentvideo" not in f.parts:
+            if (f.is_file() and f.suffix.lower() in MEDIA_EXT and ".agentvideo" not in f.parts
+                    and not f.name.startswith(".")):
                 rows.append(f"{ws.rel(str(f))}\t{f.stat().st_size / 1_048_576:.2f} MB")
         return "\n".join(rows) or "(no media files)"
 

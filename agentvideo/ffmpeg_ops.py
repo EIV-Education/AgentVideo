@@ -81,7 +81,22 @@ def _run(args: list[str], timeout: int = 1800, cwd: str | None = None) -> str:
 
 
 def ffmpeg(*args: str, cwd: str | None = None) -> None:
-    _run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", *args], cwd=cwd)
+    """Run ffmpeg. The output (last argument) is written to a hidden temp file and only renamed into
+    place on success, so a failed or interrupted encode never leaves an empty/half-written file."""
+    args = list(args)
+    out = args[-1] if args else ""
+    final = tmp = None
+    if out and not out.startswith("-") and "%" not in out and "://" not in out and Path(out).suffix:
+        final = Path(out) if os.path.isabs(out) or not cwd else Path(cwd, out)
+        tmp = final.with_name(f".{final.stem}.partial{final.suffix}")
+        args[-1] = str(tmp)
+    try:
+        _run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", *args], cwd=cwd)
+        if tmp is not None:
+            os.replace(tmp, final)
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink()
 
 
 def _prepare_output(output: str) -> str:

@@ -61,7 +61,8 @@ class Job:
             return []
         return [
             {"path": str(f.relative_to(self.dir)), "size_mb": round(f.stat().st_size / 1_048_576, 2)}
-            for f in sorted(out.rglob("*")) if f.is_file() and f.suffix.lower() in OUTPUT_EXT
+            for f in sorted(out.rglob("*"))
+            if f.is_file() and f.suffix.lower() in OUTPUT_EXT and not f.name.startswith(".") and f.stat().st_size > 0
         ]
 
 
@@ -159,7 +160,9 @@ async def follow_up(job_id: str, request: str = Form(...), files: list[UploadFil
 @app.get("/api/jobs/{job_id}", dependencies=[Depends(require_auth)])
 def job_status(job_id: str, since: int = 0) -> dict:
     job = _get_job(job_id)
-    return {"id": job.id, "status": job.status, "events": job.events[since:], "next": len(job.events), "outputs": job.outputs()}
+    # Only offer files once the agent has finished, so nobody previews a file that is still being written.
+    outputs = job.outputs() if job.status in ("done", "error") else []
+    return {"id": job.id, "status": job.status, "events": job.events[since:], "next": len(job.events), "outputs": outputs}
 
 
 @app.get("/api/jobs/{job_id}/files/{path:path}", dependencies=[Depends(require_auth)])
